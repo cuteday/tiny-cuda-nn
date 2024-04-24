@@ -158,7 +158,8 @@ __global__ void kernel_mlp_fused_backward(
 	const uint32_t output_stride,
 	const uint32_t batch_size,
 	const uint32_t out_width,
-	const uint32_t n_hidden_matmuls
+	const uint32_t n_hidden_matmuls,
+	const uint32_t* actual_batch_size = nullptr
 ) {
 	// `dL_doutput` points to the input matrix of the backward pass, i.e. the loss gradients. Assumed to be 16 neurons wide.
 	// `weights` points to the weight matrices (contiguous in memory).
@@ -184,6 +185,7 @@ __global__ void kernel_mlp_fused_backward(
 	// Thus, each block computes exactly one 16-row chunk of the next layer's intermediate activations.
 	const uint32_t elem_idx_base = 16 * bi * N_ITERS;
 	const uint32_t elem_idx = elem_idx_base;
+	if (actual_batch_size && elem_idx >= *actual_batch_size) return;
 
 	const uint32_t weights_stride = WIDTH * WIDTH;
 	const uint32_t layer_stride = WIDTH * batch_size;
@@ -287,6 +289,7 @@ std::enable_if_t<std::is_same<__half, T>::value> mlp_fused_backward(
 	const uint32_t out_width = dL_doutput.rows();
 	constexpr uint32_t SKEW = WIDTH % 16 == 0 ? 8 : 0;
 	constexpr uint32_t N_BLOCKS = WIDTH / 16;
+	const uint32_t* actual_batch_size = dL_doutput.actual_cols();
 
 	const int N_ITERS = WIDTH >= 256 ? 2 : 8;
 
@@ -305,10 +308,10 @@ std::enable_if_t<std::is_same<__half, T>::value> mlp_fused_backward(
 	// The kernels operate with transposed layouts compared with the MLP code
 	if (dL_doutput.layout() == RM) {
 		check_shmem_error(cudaFuncSetAttribute(kernel_mlp_fused_backward<WIDTH, N_ITERS, ACTIVATION, nvcuda::wmma::col_major>, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size));
-		kernel_mlp_fused_backward<WIDTH, N_ITERS, ACTIVATION, nvcuda::wmma::col_major><<<blocks, threads, shmem_size, stream>>>(dL_doutput.data(), weights.data(), temporaries.data(), forward.data(), dL_dinput ? dL_dinput->data() : nullptr, weights_first_layer.data(), dL_doutput.stride(), batch_size, out_width, n_hidden_matmuls);
+		kernel_mlp_fused_backward<WIDTH, N_ITERS, ACTIVATION, nvcuda::wmma::col_major><<<blocks, threads, shmem_size, stream>>>(dL_doutput.data(), weights.data(), temporaries.data(), forward.data(), dL_dinput ? dL_dinput->data() : nullptr, weights_first_layer.data(), dL_doutput.stride(), batch_size, out_width, n_hidden_matmuls, actual_batch_size);
 	} else {
 		check_shmem_error(cudaFuncSetAttribute(kernel_mlp_fused_backward<WIDTH, N_ITERS, ACTIVATION, nvcuda::wmma::row_major>, cudaFuncAttributeMaxDynamicSharedMemorySize, shmem_size));
-		kernel_mlp_fused_backward<WIDTH, N_ITERS, ACTIVATION, nvcuda::wmma::row_major><<<blocks, threads, shmem_size, stream>>>(dL_doutput.data(), weights.data(), temporaries.data(), forward.data(), dL_dinput ? dL_dinput->data() : nullptr, weights_first_layer.data(), dL_doutput.stride(), batch_size, out_width, n_hidden_matmuls);
+		kernel_mlp_fused_backward<WIDTH, N_ITERS, ACTIVATION, nvcuda::wmma::row_major><<<blocks, threads, shmem_size, stream>>>(dL_doutput.data(), weights.data(), temporaries.data(), forward.data(), dL_dinput ? dL_dinput->data() : nullptr, weights_first_layer.data(), dL_doutput.stride(), batch_size, out_width, n_hidden_matmuls, actual_batch_size);
 	}
 }
 
@@ -497,7 +500,7 @@ __device__ void threadblock_write_output_static(const __half* __restrict__ act_s
 }
 
 template <int WIDTH, int N_ITERS, typename OUT_T, Activation ACTIVATION, bool INFERENCE>
-__global__ void kernel_mlp_fused(const Activation output_activation, const __half* __restrict__ input, const __half* __restrict__ weights, OUT_T* __restrict__ out_intermediate, OUT_T* __restrict__ out, const uint32_t output_stride, const uint32_t batch_size, const uint32_t in_width, const uint32_t out_width, const uint32_t n_hidden_matmuls, const nvcuda::wmma::layout_t input_layout, const nvcuda::wmma::layout_t output_layout) {
+__global__ void kernel_mlp_fused(const Activation output_activation, const __half* __restrict__ input, const __half* __restrict__ weights, OUT_T* __restrict__ out_intermediate, OUT_T* __restrict__ out, const uint32_t output_stride, const uint32_t batch_size, const uint32_t in_width, const uint32_t out_width, const uint32_t n_hidden_matmuls, const nvcuda::wmma::layout_t input_layout, const nvcuda::wmma::layout_t output_layout, const uint32_t* actual_batch_size = nullptr) {
 	// `input` points to the input matrix. Can be any width.
 	// `weights` points to the weight matrices (contiguous in memory).
 	// `out_intermediate` points to the memory where intermediate activations should be written. When performing inference, a value of nullptr is expected (intermediate results are not written).
@@ -517,6 +520,7 @@ __global__ void kernel_mlp_fused(const Activation output_activation, const __hal
 
 	// Each block computes exactly one 16-element chunk of the batch.
 	const uint32_t elem_idx = 16 * blockIdx.x * N_ITERS;
+	if (actual_batch_size && elem_idx >= *actual_batch_size) return;
 
 	// First layer
 	if (input_layout == nvcuda::wmma::mem_col_major || in_width != WIDTH) {
@@ -628,7 +632,8 @@ std::enable_if_t<std::is_same<__half, T>::value> mlp_fused_forward(
 		n_hidden_layers,
 		// The kernels operate with transposed layouts compared with the MLP code
 		input.layout() == RM ? nvcuda::wmma::mem_col_major : nvcuda::wmma::mem_row_major,
-		output && output->layout() == RM ? nvcuda::wmma::mem_col_major : nvcuda::wmma::mem_row_major
+		output && output->layout() == RM ? nvcuda::wmma::mem_col_major : nvcuda::wmma::mem_row_major,
+		input.actual_cols()
 	);
 }
 
@@ -758,6 +763,7 @@ void FullyFusedMLP<T, WIDTH>::backward_impl(
 	GPUMatrixDynamic<T> backward_output_tmp;
 	if (m_output_activation != Activation::None) {
 		backward_output_tmp = {m_padded_output_width, batch_size, stream, dL_doutput.layout()};
+		backward_output_tmp.set_actual_size_unsafe(nullptr, dL_doutput.actual_n());
 		activation_backward_output_gpu(stream, dL_doutput.n_elements(), m_output_activation, output.data(), dL_doutput.data(), backward_output_tmp.data());
 	}
 

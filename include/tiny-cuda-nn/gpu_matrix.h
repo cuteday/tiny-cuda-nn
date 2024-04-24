@@ -162,6 +162,10 @@ public:
 			m_stride = stride;
 		}
 	}
+	void set_actual_size_unsafe(uint32_t* actual_rows, uint32_t* actual_cols) {
+		m_actual_rows = actual_rows;
+		m_actual_cols = actual_cols;
+	}
 
 	void set(T* data, uint32_t rows, uint32_t cols, uint32_t stride = 0) {
 		set_data_unsafe(data);
@@ -226,10 +230,14 @@ public:
 	uint32_t rows() const { return m_rows; }
 	uint32_t fan_out() const { return m_rows; }
 	uint32_t m() const { return m_rows; }
+	uint32_t* actual_m() const { return m_actual_rows; }
+	uint32_t* actual_rows() const { return m_actual_rows; }
 
 	uint32_t cols() const { return m_cols; }
 	uint32_t fan_in() const { return m_cols; }
 	uint32_t n() const { return m_cols; }
+	uint32_t* actual_n() const { return m_actual_cols; }
+	uint32_t* actual_cols() const { return m_actual_cols; }
 
 	uint32_t stride() const { return m_stride; }
 	PitchedPtr<T> pitched_ptr() { return {data(), stride()}; }
@@ -406,6 +414,7 @@ public:
 private:
 	T* m_data;
 	uint32_t m_rows, m_cols, m_stride;
+	uint32_t *m_actual_rows{}, *m_actual_cols{};
 	MatrixLayout m_layout;
 
 	// References to corresponding memory allocations. These ensure that

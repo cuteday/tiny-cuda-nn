@@ -59,10 +59,12 @@ __global__ void kernel_grid(
 	const T* __restrict__ grid,
 	MatrixView<const float> positions_in,
 	T* __restrict__ encoded_positions,
-	float* __restrict__ dy_dx
+	float* __restrict__ dy_dx,
+	const uint32_t* actual_num_elements = nullptr
 ) {
 	const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i >= num_elements) return;
+	if (actual_num_elements && i >= *actual_num_elements) return;
 
 	const uint32_t level = blockIdx.y; // <- the level is the same for all threads
 
@@ -225,10 +227,12 @@ __global__ void kernel_grid_backward(
 	const GridType grid_type,
 	GRAD_T* __restrict__ grid_gradient,
 	MatrixView<const float> positions_in,
-	const T* __restrict__ dL_dy
+	const T* __restrict__ dL_dy,
+	const uint32_t* actual_num_elements = nullptr
 ) {
 	const uint32_t i = ((blockIdx.x * blockDim.x + threadIdx.x) * N_FEATURES_PER_THREAD) / N_FEATURES_PER_LEVEL;
 	if (i >= num_elements) return;
+	if (actual_num_elements && i >= *actual_num_elements) return;
 
 	const uint32_t level = blockIdx.y ; // <- the level is the same for all threads.
 	const uint32_t feature = (blockIdx.x * blockDim.x + threadIdx.x) * N_FEATURES_PER_THREAD - i * N_FEATURES_PER_LEVEL;
@@ -789,7 +793,8 @@ public:
 			use_inference_params ? this->inference_params() : this->params(),
 			forward->positions.data() ? forward->positions.view() : input.view(),
 			encoded_positions_soa,
-			forward->dy_dx.data()
+			forward->dy_dx.data(),
+			input.actual_n()
 		);
 
 		if (output && output->layout() == AoS) {
@@ -876,7 +881,8 @@ public:
 				m_grid_type,
 				grid_gradient,
 				forward.positions.data() ? forward.positions.view() : input.view(), // positions SoA
-				dL_dy_rm // gradients SoA
+				dL_dy_rm, // gradients SoA
+				input.actual_n()
 			);
 
 			if (!std::is_same<grad_t, T>::value) {
