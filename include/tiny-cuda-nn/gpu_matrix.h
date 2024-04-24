@@ -129,6 +129,18 @@ public:
 		set(data, m, n, stride);
 	}
 
+	// Specifying actual sizes on GPU
+	explicit GPUMatrixDynamic(T *data, uint32_t m, uint32_t n, uint32_t *actual_m, uint32_t *actual_n, MatrixLayout layout = CM, uint32_t stride = 0,
+			std::shared_ptr<GPUMemory<uint8_t>> malloc_allocation = nullptr, std::shared_ptr<GPUMemoryArena::Allocation> arena_allocation = nullptr) :
+		m_data{data},
+		m_layout{layout},
+		m_actual_rows(actual_m),
+		m_actual_cols(actual_n),
+		m_malloc_allocation{malloc_allocation},
+		m_arena_allocation{arena_allocation} {
+		set(data, m, n, stride);
+	}
+
 	GPUMatrixDynamic() : GPUMatrixDynamic{nullptr, 0, 0} {}
 
 	GPUMatrixDynamic<T>& operator=(GPUMatrixDynamic<T>&& other) {
