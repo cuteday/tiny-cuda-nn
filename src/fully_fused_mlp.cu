@@ -764,7 +764,7 @@ void FullyFusedMLP<T, WIDTH>::backward_impl(
 	if (m_output_activation != Activation::None) {
 		backward_output_tmp = {m_padded_output_width, batch_size, stream, dL_doutput.layout()};
 		backward_output_tmp.set_actual_size_unsafe(nullptr, dL_doutput.actual_n());
-		activation_backward_output_gpu(stream, dL_doutput.n_elements(), m_output_activation, output.data(), dL_doutput.data(), backward_output_tmp.data());
+		activation_backward_output_gpu(stream, dL_doutput.n_elements(), m_output_activation, output.data(), dL_doutput.data(), backward_output_tmp.data(), dL_doutput.actual_n());
 	}
 
 	// Backprop
