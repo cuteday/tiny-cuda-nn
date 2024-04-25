@@ -50,10 +50,12 @@ __global__ void reduce_sum_forward(
 	const uint32_t width,
 	const uint32_t num_to_reduce,
 	MatrixView<const T> to_reduce,
-	MatrixView<T> reduced
+	MatrixView<T> reduced,
+	uint32_t* actual_num_elements = nullptr
 ) {
 	const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i >= num_elements) return;
+	if (actual_num_elements && i >= *actual_num_elements) return;
 
 	for (uint32_t j = 0; j < width; ++j) {
 		float result = 0.0f;
@@ -70,10 +72,12 @@ __global__ void reduce_sum_backward(
 	const uint32_t width,
 	const uint32_t num_to_reduce,
 	MatrixView<T> dL_dinput,
-	MatrixView<const T> dL_doutput
+	MatrixView<const T> dL_doutput,
+	uint32_t* actual_num_elements = nullptr
 ) {
 	const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i >= num_elements) return;
+	if (actual_num_elements && i >= *actual_num_elements) return;
 
 	for (uint32_t j = 0; j < width; ++j) {
 		T tmp = dL_doutput(j, i);
@@ -89,10 +93,12 @@ __global__ void reduce_product_forward(
 	const uint32_t width,
 	const uint32_t num_to_reduce,
 	MatrixView<const T> to_reduce,
-	MatrixView<T> reduced
+	MatrixView<T> reduced,
+	uint32_t* actual_num_elements = nullptr
 ) {
 	const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i >= num_elements) return;
+	if (actual_num_elements && i >= *actual_num_elements) return;
 
 	for (uint32_t j = 0; j < width; ++j) {
 		float result = 1.0f;
@@ -110,10 +116,12 @@ __global__ void reduce_product_backward(
 	const uint32_t num_to_reduce,
 	MatrixView<const T> to_reduce,
 	MatrixView<T> dL_dinput,
-	MatrixView<const T> dL_doutput
+	MatrixView<const T> dL_doutput,
+	uint32_t* actual_num_elements = nullptr
 ) {
 	const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i >= num_elements) return;
+	if (actual_num_elements && i >= *actual_num_elements) return;
 
 	for (uint32_t j = 0; j < width; ++j) {
 		float tmp = (float)dL_doutput(j, i);
@@ -244,9 +252,11 @@ public:
 				sliced_output = output->slice_rows(output_offset, output_width);
 			}
 
+			GPUMatrixDynamic<float> sliced_input = input.slice_rows(input_offset, input_width);
+			sliced_input.set_actual_size_unsafe(nullptr, input.actual_n());
 			forward->nested[i] = nested->forward(
 				stream, // TODO: use SyncedMultiStream but ensure memory arena allocations happen on `stream`
-				input.slice_rows(input_offset, input_width),
+				sliced_input,
 				output ? &sliced_output : nullptr,
 				use_inference_params,
 				prepare_input_gradients
@@ -263,14 +273,16 @@ public:
 					padded_output_width(),
 					(uint32_t)m_nested.size(),
 					forward->to_reduce.view(),
-					reduced_output->view()
+					reduced_output->view(),
+					input.actual_n()
 				); break;
 				case ReductionType::Product: linear_kernel(reduce_product_forward<T>, 0, stream,
 					input.n(),
 					padded_output_width(),
 					(uint32_t)m_nested.size(),
 					forward->to_reduce.view(),
-					reduced_output->view()
+					reduced_output->view(),
+					input.actual_n()
 				); break;
 				default: throw std::runtime_error{"CompositeEncoding::forward: invalid reduction type."};
 			}
@@ -309,7 +321,8 @@ public:
 					padded_output_width(),
 					(uint32_t)m_nested.size(),
 					dL_dunreduced_output->view(),
-					dL_doutput.view()
+					dL_doutput.view(),
+					input.actual_n()
 				); break;
 				case ReductionType::Product: linear_kernel(reduce_product_backward<T>, 0, stream,
 					input.n(),
@@ -317,7 +330,8 @@ public:
 					(uint32_t)m_nested.size(),
 					forward.to_reduce.view(),
 					dL_dunreduced_output->view(),
-					dL_doutput.view()
+					dL_doutput.view(),
+					input.actual_n()
 				); break;
 				default: throw std::runtime_error{"CompositeEncoding::backward: invalid reduction type."};
 			}
@@ -338,10 +352,12 @@ public:
 				sliced_dL_dinput = dL_dinput->slice_rows(input_offset, input_width);
 			}
 
+			GPUMatrixDynamic<float> sliced_input = input.slice_rows(input_offset, input_width);
+			sliced_input.set_actual_size_unsafe(nullptr, input.actual_n());
 			nested->backward(
 				synced_streams.get(i),
 				*forward.nested[i],
-				input.slice_rows(input_offset, input_width),
+				sliced_input,
 				output.slice_rows(output_offset, output_width),
 				dL_dunreduced_output->slice_rows(output_offset, output_width),
 				dL_dinput ? &sliced_dL_dinput : nullptr,

@@ -129,6 +129,18 @@ public:
 		set(data, m, n, stride);
 	}
 
+	// Specifying actual sizes on GPU
+	explicit GPUMatrixDynamic(T *data, uint32_t m, uint32_t n, uint32_t *actual_m, uint32_t *actual_n, MatrixLayout layout = CM, uint32_t stride = 0,
+			std::shared_ptr<GPUMemory<uint8_t>> malloc_allocation = nullptr, std::shared_ptr<GPUMemoryArena::Allocation> arena_allocation = nullptr) :
+		m_data{data},
+		m_layout{layout},
+		m_actual_rows(actual_m),
+		m_actual_cols(actual_n),
+		m_malloc_allocation{malloc_allocation},
+		m_arena_allocation{arena_allocation} {
+		set(data, m, n, stride);
+	}
+
 	GPUMatrixDynamic() : GPUMatrixDynamic{nullptr, 0, 0} {}
 
 	GPUMatrixDynamic<T>& operator=(GPUMatrixDynamic<T>&& other) {
@@ -161,6 +173,10 @@ public:
 		} else {
 			m_stride = stride;
 		}
+	}
+	void set_actual_size_unsafe(uint32_t* actual_rows, uint32_t* actual_cols) {
+		m_actual_rows = actual_rows;
+		m_actual_cols = actual_cols;
 	}
 
 	void set(T* data, uint32_t rows, uint32_t cols, uint32_t stride = 0) {
@@ -226,10 +242,14 @@ public:
 	uint32_t rows() const { return m_rows; }
 	uint32_t fan_out() const { return m_rows; }
 	uint32_t m() const { return m_rows; }
+	uint32_t* actual_m() const { return m_actual_rows; }
+	uint32_t* actual_rows() const { return m_actual_rows; }
 
 	uint32_t cols() const { return m_cols; }
 	uint32_t fan_in() const { return m_cols; }
 	uint32_t n() const { return m_cols; }
+	uint32_t* actual_n() const { return m_actual_cols; }
+	uint32_t* actual_cols() const { return m_actual_cols; }
 
 	uint32_t stride() const { return m_stride; }
 	PitchedPtr<T> pitched_ptr() { return {data(), stride()}; }
@@ -406,6 +426,7 @@ public:
 private:
 	T* m_data;
 	uint32_t m_rows, m_cols, m_stride;
+	uint32_t *m_actual_rows{}, *m_actual_cols{};
 	MatrixLayout m_layout;
 
 	// References to corresponding memory allocations. These ensure that
