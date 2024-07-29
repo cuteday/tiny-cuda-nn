@@ -240,30 +240,33 @@ public:
 		}
 
 		uint32_t output_offset = 0;
+		static bool initialized = false;
+		{
+			SyncedMultiStream synced_streams{stream, m_nested.size()};
+			for (size_t i = 0; i < m_nested.size(); ++i) {
+				const auto &nested	  = m_nested[i];
+				uint32_t input_offset = m_dims_to_encode_begin[i];
+				uint32_t input_width  = nested->input_width();
+				uint32_t output_width = nested->output_width();
 
-		for (size_t i = 0; i < m_nested.size(); ++i) {
-			const auto& nested = m_nested[i];
-			uint32_t input_offset = m_dims_to_encode_begin[i];
-			uint32_t input_width = nested->input_width();
-			uint32_t output_width = nested->output_width();
+				GPUMatrixDynamic<T> sliced_output;
+				if (output) {
+					sliced_output = output->slice_rows(output_offset, output_width);
+				}
 
-			GPUMatrixDynamic<T> sliced_output;
-			if (output) {
-				sliced_output = output->slice_rows(output_offset, output_width);
+				GPUMatrixDynamic<float> sliced_input = input.slice_rows(input_offset, input_width);
+				sliced_input.set_actual_size_unsafe(nullptr, input.actual_n());
+				forward->nested[i] = nested->forward(
+					initialized ? synced_streams.get(i) : stream,	
+					sliced_input,
+					output ? &sliced_output : nullptr,
+					use_inference_params,
+					prepare_input_gradients);
+
+				input_offset += input_width;
+				output_offset += output_width;
 			}
-
-			GPUMatrixDynamic<float> sliced_input = input.slice_rows(input_offset, input_width);
-			sliced_input.set_actual_size_unsafe(nullptr, input.actual_n());
-			forward->nested[i] = nested->forward(
-				stream, // TODO: use SyncedMultiStream but ensure memory arena allocations happen on `stream`
-				sliced_input,
-				output ? &sliced_output : nullptr,
-				use_inference_params,
-				prepare_input_gradients
-			);
-
-			input_offset += input_width;
-			output_offset += output_width;
+			initialized = true;
 		}
 
 		if (reduced_output && m_reduction_type != ReductionType::Concatenation) {
