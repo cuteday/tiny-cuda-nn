@@ -721,9 +721,10 @@ template <typename T, uint32_t N, size_t A = sizeof(T)>
 using vector_fragment_t = VectorFragment<tvec<T, N, A>>;
 
 template <typename T, uint32_t N=1>
-__global__ void kernel_activation(const uint32_t num_elements, const Activation act, const T* in, T* out) {
+__global__ void kernel_activation(const uint32_t num_elements, const Activation act, const T* in, T* out, const uint32_t* actual_num_elements = nullptr) {
 	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
 	if (i >= num_elements) return;
+	if (actual_num_elements && i >= *actual_num_elements) return;
 
 	auto frag = ((vector_fragment_t<T, N>*)in)[i];
 	warp_activation<T>(act, frag, frag);
@@ -732,9 +733,10 @@ __global__ void kernel_activation(const uint32_t num_elements, const Activation 
 
 // Transfer functions corresponding to activations; version without biases
 template <typename T, uint32_t N=1>
-__global__ void kernel_activation_backward(const uint32_t num_elements, const Activation act, const T* __restrict__ values, const T* gradients_out, T* gradients_in) {
+__global__ void kernel_activation_backward(const uint32_t num_elements, const Activation act, const T* __restrict__ values, const T* gradients_out, T* gradients_in, const uint32_t* actual_num_elements = nullptr) {
 	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
 	if (i >= num_elements) return;
+	if (actual_num_elements && i >= *actual_num_elements) return;
 
 	auto frag_forward_in = ((vector_fragment_t<T, N>*)values)[i];
 	auto frag = ((vector_fragment_t<T, N>*)gradients_out)[i];
@@ -745,9 +747,10 @@ __global__ void kernel_activation_backward(const uint32_t num_elements, const Ac
 
 // Transfer functions corresponding to activations, given _output_ values. Only works if the activation is invertible
 template <typename T, uint32_t N=1>
-__global__ void kernel_activation_backward_output(const uint32_t num_elements, const Activation act, const T* __restrict__ output_values, const T* gradients_out, T* gradients_in) {
+__global__ void kernel_activation_backward_output(const uint32_t num_elements, const Activation act, const T* __restrict__ output_values, const T* gradients_out, T* gradients_in, const uint32_t* actual_num_elements = nullptr) {
 	const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
 	if (i >= num_elements) return;
+	if (actual_num_elements && i >= *actual_num_elements) return;
 
 	auto frag_forward_out = ((vector_fragment_t<T, N>*)output_values)[i];
 	auto frag = ((vector_fragment_t<T, N>*)gradients_out)[i];

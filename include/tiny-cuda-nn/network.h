@@ -70,7 +70,7 @@ std::string select_network(const json& network);
 uint32_t minimum_alignment(const json& network);
 
 template <typename T>
-void activation_gpu(cudaStream_t stream, const uint32_t num_elements, const Activation act, const T* in, T* out) {
+void activation_gpu(cudaStream_t stream, const uint32_t num_elements, const Activation act, const T* in, T* out, const uint32_t* actual_num_elements = nullptr) {
 	static constexpr uint32_t ACTIVATION_VECTOR_SIZE = 16u / sizeof(T);
 	if (num_elements % ACTIVATION_VECTOR_SIZE != 0) {
 		throw std::runtime_error{fmt::format("activation_gpu: number of elements must be a multiple of {}", ACTIVATION_VECTOR_SIZE)};
@@ -81,20 +81,20 @@ void activation_gpu(cudaStream_t stream, const uint32_t num_elements, const Acti
 		return;
 	}
 
-	linear_kernel(kernel_activation<T, ACTIVATION_VECTOR_SIZE>, 0, stream, div_round_up(num_elements, ACTIVATION_VECTOR_SIZE), act, in, out);
+	linear_kernel(kernel_activation<T, ACTIVATION_VECTOR_SIZE>, 0, stream, div_round_up(num_elements, ACTIVATION_VECTOR_SIZE), act, in, out, actual_num_elements);
 }
 
 template <typename T>
-void activation_gpu(cudaStream_t stream, Activation activation, const GPUMatrixDynamic<T>& input, GPUMatrixDynamic<T>& output) {
+void activation_gpu(cudaStream_t stream, Activation activation, const GPUMatrixDynamic<T>& input, GPUMatrixDynamic<T>& output, const uint32_t* actual_num_elements = nullptr) {
 	if (input.n() != output.n() || input.m() != output.m()) {
 		throw std::runtime_error{fmt::format("Input and output don't have matching size: {} != {}", input.n(), output.n())};
 	}
 
-	activation_gpu(stream, input.n_elements(), activation, input.data(), output.data());
+	activation_gpu(stream, input.n_elements(), activation, input.data(), output.data(), actual_num_elements);
 }
 
 template <typename T>
-void activation_backward_gpu(cudaStream_t stream, const uint32_t num_elements, const Activation act, const T* __restrict__ values, const T* gradients_out, T* gradients_in) {
+void activation_backward_gpu(cudaStream_t stream, const uint32_t num_elements, const Activation act, const T* __restrict__ values, const T* gradients_out, T* gradients_in, const uint32_t* actual_num_elements = nullptr) {
 	static constexpr uint32_t ACTIVATION_VECTOR_SIZE = 16u / sizeof(T);
 	if (num_elements % ACTIVATION_VECTOR_SIZE != 0) {
 		throw std::runtime_error{fmt::format("activation_backward_gpu: number of elements must be a multiple of {}", ACTIVATION_VECTOR_SIZE)};
@@ -105,20 +105,20 @@ void activation_backward_gpu(cudaStream_t stream, const uint32_t num_elements, c
 		return;
 	}
 
-	linear_kernel(kernel_activation_backward<T, ACTIVATION_VECTOR_SIZE>, 0, stream, div_round_up(num_elements, ACTIVATION_VECTOR_SIZE), act, values, gradients_out, gradients_in);
+	linear_kernel(kernel_activation_backward<T, ACTIVATION_VECTOR_SIZE>, 0, stream, div_round_up(num_elements, ACTIVATION_VECTOR_SIZE), act, values, gradients_out, gradients_in, actual_num_elements);
 }
 
 template <typename T>
-void activation_backward_gpu(cudaStream_t stream, Activation activation, const GPUMatrixDynamic<T>& values, GPUMatrixDynamic<T>& gradients) {
+void activation_backward_gpu(cudaStream_t stream, Activation activation, const GPUMatrixDynamic<T>& values, GPUMatrixDynamic<T>& gradients, const uint32_t* actual_num_elements = nullptr) {
 	if (values.n() != gradients.n() || values.m() != gradients.m()) {
 		throw std::runtime_error{fmt::format("Values and gradients don't have matching size: {} != {}", values.n(), gradients.n())};
 	}
 
-	activation_backward_gpu(stream, values.n_elements(), activation, values.data(), gradients.data(), gradients.data());
+	activation_backward_gpu(stream, values.n_elements(), activation, values.data(), gradients.data(), gradients.data(), actual_num_elements);
 }
 
 template <typename T>
-void activation_backward_output_gpu(cudaStream_t stream, const uint32_t num_elements, const Activation act, const T* __restrict__ output_values, const T* gradients_out, T* gradients_in) {
+void activation_backward_output_gpu(cudaStream_t stream, const uint32_t num_elements, const Activation act, const T* __restrict__ output_values, const T* gradients_out, T* gradients_in, const uint32_t* actual_num_elements = nullptr) {
 	static constexpr uint32_t ACTIVATION_VECTOR_SIZE = 16u / sizeof(T);
 	if (num_elements % ACTIVATION_VECTOR_SIZE != 0) {
 		throw std::runtime_error{fmt::format("activation_backward_output_gpu: number of elements must be a multiple of {}", ACTIVATION_VECTOR_SIZE)};
@@ -129,7 +129,7 @@ void activation_backward_output_gpu(cudaStream_t stream, const uint32_t num_elem
 		return;
 	}
 
-	linear_kernel(kernel_activation_backward_output<T, ACTIVATION_VECTOR_SIZE>, 0, stream, div_round_up(num_elements, ACTIVATION_VECTOR_SIZE), act, output_values, gradients_out, gradients_in);
+	linear_kernel(kernel_activation_backward_output<T, ACTIVATION_VECTOR_SIZE>, 0, stream, div_round_up(num_elements, ACTIVATION_VECTOR_SIZE), act, output_values, gradients_out, gradients_in, actual_num_elements);
 }
 
 }
